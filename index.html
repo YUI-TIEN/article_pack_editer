@@ -24,25 +24,88 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <script type="text/babel">
-        // Function to determine background color based on question count
+        // Function to determine background color class based on question count
         const getBackgroundColorClass = (questionCount) => {
             if (questionCount === 0) {
-                return 'bg-white'; // Default white for 0 questions
+                return 'bg-white text-gray-800'; // Default white for 0 questions
             } else if (questionCount >= 1 && questionCount <= 5) {
-                return 'bg-blue-50';
+                return 'bg-blue-50 text-gray-800';
             } else if (questionCount >= 6 && questionCount <= 10) {
-                return 'bg-blue-100';
+                return 'bg-blue-100 text-gray-800';
             } else if (questionCount >= 11 && questionCount <= 20) {
-                return 'bg-blue-200';
+                return 'bg-blue-200 text-gray-800';
             } else if (questionCount >= 21 && questionCount <= 30) {
-                return 'bg-blue-300';
+                return 'bg-blue-300 text-gray-800';
             } else if (questionCount >= 31 && questionCount <= 40) {
-                return 'bg-blue-400';
+                return 'bg-blue-400 text-gray-800';
             } else if (questionCount >= 41) {
                 return 'bg-blue-500 text-white'; // Darkest blue, text becomes white for readability
             }
-            return 'bg-white'; // Fallback
+            return 'bg-white text-gray-800'; // Fallback
         };
+
+        // Helper function to parse a single CSV row
+        const parseCsvRowSimple = (rowString) => {
+            const parts = [];
+            let currentPart = '';
+            let inQuote = false;
+            let i = 0;
+
+            while (i < rowString.length) {
+                const char = rowString[i];
+                const nextChar = rowString[i + 1];
+
+                if (char === '"') {
+                    if (inQuote && nextChar === '"') { // Escaped double quote ""
+                        currentPart += '"';
+                        i++; // Consume the second quote
+                    } else { // Start or end of a quote
+                        inQuote = !inQuote;
+                    }
+                } else if (char === ',' && !inQuote) { // Comma outside quotes is a delimiter
+                    parts.push(currentPart.trim()); // Trim parts
+                    currentPart = '';
+                } else {
+                    currentPart += char;
+                }
+                i++;
+            }
+            parts.push(currentPart.trim()); // Push the last part
+
+            // Validate that we have enough parts for subtitle, content, and questionNumbers
+            if (parts.length < 5) { // Needs at least 5 parts to get questionNumbers (index 4)
+                console.warn("CSV row has fewer than expected parts:", rowString);
+                return null;
+            }
+
+            return {
+                title: parts[0],
+                content: parts[1],
+                // parts[2] and parts[3] are "[]" for animations and expressions, not used in state
+                questionCount: parseInt(parts[4] || 0), // Safely parse, default to 0 if invalid
+            };
+        };
+
+        // Function to parse the entire CSV string into an array of paragraph objects
+        const parseCsvString = (csvString, currentNextId) => {
+            const rows = csvString.trim().split('\n');
+            let parsedParagraphs = [];
+            let localNextId = currentNextId;
+
+            rows.forEach(rowString => {
+                if (!rowString.trim()) return; // Skip empty lines
+
+                const parsedData = parseCsvRowSimple(rowString);
+                if (parsedData) {
+                    parsedParagraphs.push({
+                        id: localNextId++, // Assign a new unique ID
+                        ...parsedData,
+                    });
+                }
+            });
+            return { parsedParagraphs, newNextId: localNextId };
+        };
+
 
         // ParagraphItem Component: Renders a single paragraph and manages its editing state
         function ParagraphItem({ paragraph, onUpdate, onDelete, onDragStart, onDragEnter, onDragOver, onDrop, isDraggingOver }) {
@@ -52,13 +115,15 @@
             const [currentQuestionCount, setCurrentQuestionCount] = React.useState(parseInt(paragraph.questionCount || 0));
             const [errorMessage, setErrorMessage] = React.useState('');
 
+            // Update internal state if paragraph prop changes (e.g., after save or reorder)
             React.useEffect(() => {
                 setCurrentTitle(paragraph.title);
                 setCurrentContent(paragraph.content);
-                setCurrentQuestionCount(parseInt(paragraph.questionCount || 0));
-                setIsEditing(paragraph.isEditing || false);
+                setCurrentQuestionCount(parseInt(paragraph.questionCount || 0)); // Ensure it's a number
+                setIsEditing(paragraph.isEditing || false); // Ensure initial editing state is respected
             }, [paragraph]);
 
+            // Handle saving the edited paragraph
             const handleSave = () => {
                 if (currentQuestionCount < 0) {
                     setErrorMessage('回答問題數不能為負數。');
@@ -69,16 +134,19 @@
                     title: currentTitle,
                     content: currentContent,
                     questionCount: parseInt(currentQuestionCount),
-                    isEditing: false,
+                    isEditing: false, // Exit editing mode after saving
                 });
                 setErrorMessage('');
-                setIsEditing(false);
+                setIsEditing(false); // Update local state as well
             };
 
+            // Handle canceling the edit
             const handleCancel = () => {
                 if (paragraph.title === '' && paragraph.content === '' && paragraph.questionCount === 0) {
+                    // If it's a newly added empty paragraph, delete it on cancel
                     onDelete(paragraph.id);
                 } else {
+                    // Revert to original values and exit editing mode
                     setCurrentTitle(paragraph.title);
                     setCurrentContent(paragraph.content);
                     setCurrentQuestionCount(parseInt(paragraph.questionCount || 0));
@@ -87,21 +155,26 @@
                 }
             };
 
+            // Handle incrementing question count
             const incrementQuestionCount = () => {
                 setCurrentQuestionCount(prev => prev + 1);
             };
 
+            // Handle decrementing question count, ensuring it doesn't go below 0
             const decrementQuestionCount = () => {
                 setCurrentQuestionCount(prev => Math.max(0, prev - 1));
             };
 
+            // Handle manual input for question count
             const handleQuestionCountChange = (e) => {
                 const value = parseInt(e.target.value);
+                // If input is empty, treat as 0 or keep empty for user to type
+                // Here, we'll convert empty string to 0 for consistency with number input
                 setCurrentQuestionCount(isNaN(value) ? 0 : Math.max(0, value));
             };
 
+            // Get the background color class based on currentQuestionCount
             const backgroundColorClass = getBackgroundColorClass(paragraph.questionCount);
-            const textColorClass = paragraph.questionCount >= 41 ? 'text-white' : 'text-gray-800';
 
             return (
                 <li
@@ -111,16 +184,20 @@
                     onDragEnter={onDragEnter}
                     onDragOver={onDragOver}
                     onDrop={onDrop}
-                    className={`flex flex-col gap-2 rounded-lg p-4 shadow-sm transition duration-200 ease-in-out ${backgroundColorClass} ${textColorClass} ${
+                    className={`flex flex-col gap-2 rounded-lg p-4 shadow-sm transition duration-200 ease-in-out ${backgroundColorClass} ${
                         isDraggingOver ? 'border-2 border-dashed border-blue-400' : ''
                     }`}
                 >
                     {isEditing ? (
+                        // Editing Mode - Vertical layout for inputs
                         <div className="flex w-full flex-col space-y-3">
+                            {/* Order */}
                             <div className="flex flex-col">
                                 <label htmlFor={`order-${paragraph.id}`} className="mb-1 text-sm font-medium text-gray-700">順序:</label>
                                 <span id={`order-${paragraph.id}`} className="text-lg font-semibold text-gray-700">{paragraph.order}</span>
                             </div>
+
+                            {/* Title */}
                             <div className="flex flex-col">
                                 <label htmlFor={`title-input-${paragraph.id}`} className="mb-1 text-sm font-medium text-gray-700">標題:</label>
                                 <input
@@ -128,10 +205,12 @@
                                     id={`title-input-${paragraph.id}`}
                                     value={currentTitle}
                                     onChange={(e) => setCurrentTitle(e.target.value)}
-                                    className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800"
+                                    className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800" // Ensure text color is readable
                                     placeholder="輸入段落標題"
                                 />
                             </div>
+
+                            {/* Content */}
                             <div className="flex flex-col">
                                 <label htmlFor={`content-textarea-${paragraph.id}`} className="mb-1 text-sm font-medium text-gray-700">內容:</label>
                                 <textarea
@@ -139,10 +218,12 @@
                                     value={currentContent}
                                     onChange={(e) => setCurrentContent(e.target.value)}
                                     rows="3"
-                                    className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800"
+                                    className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800" // Ensure text color is readable
                                     placeholder="輸入段落內容"
                                 ></textarea>
                             </div>
+
+                            {/* Question Count with +/- buttons and input field */}
                             <div className="flex flex-col">
                                 <label htmlFor={`question-count-input-${paragraph.id}`} className="mb-1 text-sm font-medium text-gray-700">回答問題數:</label>
                                 <div className="flex items-center space-x-2">
@@ -159,7 +240,7 @@
                                         id={`question-count-input-${paragraph.id}`}
                                         value={currentQuestionCount}
                                         onChange={handleQuestionCountChange}
-                                        className="w-20 text-center rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800"
+                                        className="w-20 text-center rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800" // Ensure text color is readable
                                         min="0"
                                     />
                                     <button
@@ -172,6 +253,7 @@
                                     </button>
                                 </div>
                             </div>
+
                             {errorMessage && <p className="mt-2 text-sm text-red-600">{errorMessage}</p>}
                             <div className="flex justify-end space-x-2 pt-2">
                                 <button
@@ -189,8 +271,8 @@
                             </div>
                         </div>
                     ) : (
+                        // Display Mode - Horizontal layout remains with consistent styling
                         <div className="flex w-full items-center justify-between">
-                            {/* Adjusted display mode for consistent font size and weight */}
                             <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-4 gap-2 items-center">
                                 <div className="flex items-center gap-1">
                                     <span className="text-base">順序:</span>
@@ -238,11 +320,15 @@
         // Main App Component
         function App() {
             const [paragraphs, setParagraphs] = React.useState([]);
-            const [fileName, setFileName] = React.useState('theme_pack');
-            const nextIdRef = React.useRef(0);
-            const dragItem = React.useRef(null);
-            const dragOverItem = React.useRef(null);
+            const [fileName, setFileName] = React.useState('theme_pack'); // State for file name
+            const [csvInputText, setCsvInputText] = React.useState(''); // State for CSV input text
+            const [importMessage, setImportMessage] = React.useState(null); // State for import feedback message
 
+            const nextIdRef = React.useRef(0); // To generate unique IDs for paragraphs
+            const dragItem = React.useRef(null); // Reference to the dragged item
+            const dragOverItem = React.useRef(null); // Reference to the item being dragged over
+
+            // Effect to initialize nextIdRef from existing paragraphs on load, or start from 0
             React.useEffect(() => {
                 if (paragraphs.length > 0) {
                     nextIdRef.current = Math.max(...paragraphs.map(p => p.id)) + 1;
@@ -251,29 +337,35 @@
                 }
             }, [paragraphs]);
 
+            // Handler to add a new, empty paragraph directly to the list in editing mode
             const handleAddParagraph = () => {
                 const newParagraph = {
                     id: nextIdRef.current++,
                     title: '',
                     content: '',
                     questionCount: 0,
-                    order: paragraphs.length + 1,
-                    isEditing: true,
+                    order: paragraphs.length + 1, // Assign order based on current list length
+                    isEditing: true, // New paragraph starts in editing mode
                 };
                 setParagraphs([...paragraphs, newParagraph]);
+                setImportMessage(null); // Clear import message on adding new paragraph
             };
 
+            // Handler to update an existing paragraph (called from ParagraphItem)
             const handleUpdateParagraph = (updatedParagraph) => {
                 setParagraphs(paragraphs.map(p =>
                     p.id === updatedParagraph.id ? updatedParagraph : p
                 ));
             };
 
+            // Handler to delete a paragraph
             const handleDeleteParagraph = (id) => {
                 const updatedParagraphs = paragraphs.filter(p => p.id !== id);
+                // Reassign order after deletion
                 setParagraphs(updatedParagraphs.map((p, index) => ({ ...p, order: index + 1 })));
             };
 
+            // Drag and Drop Handlers
             const handleDragStart = (e, index) => {
                 dragItem.current = index;
                 e.dataTransfer.effectAllowed = "move";
@@ -304,26 +396,35 @@
                 const [reorderedItem] = newParagraphs.splice(dragIndex, 1);
                 newParagraphs.splice(dropIndex, 0, reorderedItem);
 
+                // Reassign order after reordering
                 setParagraphs(newParagraphs.map((p, index) => ({ ...p, order: index + 1 })));
 
                 dragItem.current = null;
                 dragOverItem.current = null;
             }, [paragraphs]);
 
+            // CSV Export Handler
             const handleExportCSV = () => {
+                // Sort paragraphs by their current order before exporting
                 const sortedParagraphs = [...paragraphs].sort((a, b) => a.order - b.order);
+
                 const headers = ["subtitle", "content", "animations", "expressions", "questionNumbers", "order"];
                 const csvRows = [];
+
+                // Add headers row
                 csvRows.push(headers.join(","));
 
+                // Add data rows
                 sortedParagraphs.forEach(p => {
+                    // Escape double quotes by replacing them with two double quotes, then enclose in quotes
                     const escapedTitle = `"${p.title.replace(/"/g, '""')}"`;
                     const escapedContent = `"${p.content.replace(/"/g, '""')}"`;
+
                     const row = [
                         escapedTitle,
                         escapedContent,
-                        `"[]"`,
-                        `"[]"`,
+                        `"[]"`, // Fixed value for animations
+                        `"[]"`, // Fixed value for expressions
                         p.questionCount,
                         p.order,
                     ];
@@ -344,11 +445,39 @@
                 }
             };
 
+            // Handler for importing CSV content from textarea
+            const handleImportCsv = () => {
+                setImportMessage(null); // Clear previous messages
+                if (!csvInputText.trim()) {
+                    setImportMessage({ type: 'error', text: 'CSV 內容不能為空。' });
+                    return;
+                }
+
+                const { parsedParagraphs: importedItems, newNextId } = parseCsvString(csvInputText, nextIdRef.current);
+
+                if (importedItems.length === 0) {
+                    setImportMessage({ type: 'error', text: '無法解析 CSV 內容，請檢查格式是否正確。' });
+                    return;
+                }
+
+                nextIdRef.current = newNextId; // Update the global nextIdRef
+
+                const combinedParagraphs = [...paragraphs, ...importedItems];
+                // Reassign order for all paragraphs after combining and sorting
+                const reorderedAndNumbered = combinedParagraphs.map((p, index) => ({ ...p, order: index + 1 }));
+
+                setParagraphs(reorderedAndNumbered);
+                setCsvInputText(''); // Clear input after import
+                setImportMessage({ type: 'success', text: 'CSV 內容已成功匯入！' });
+            };
+
+
             return (
                 <div className="min-h-screen bg-gray-100 p-4 font-inter text-gray-800 antialiased">
                     <div className="container mx-auto rounded-lg bg-white p-6 shadow-xl relative">
                         <h1 className="mb-6 text-center text-4xl font-bold text-gray-900">新增主題包</h1>
 
+                        {/* CSV Export Button at top right */}
                         <div className="absolute top-6 right-6">
                             <button
                                 onClick={handleExportCSV}
@@ -361,6 +490,7 @@
                             </button>
                         </div>
 
+                        {/* File Name Input */}
                         <div className="mb-6">
                             <label htmlFor="fileName" className="mb-1 block text-sm font-medium text-gray-700">檔案名稱:</label>
                             <input
@@ -373,13 +503,39 @@
                             />
                         </div>
 
+                        {/* CSV Input Section */}
+                        <div className="mb-6">
+                            <label htmlFor="csvInput" className="mb-1 block text-sm font-medium text-gray-700">匯入段落內容 (CSV 格式):</label>
+                            <textarea
+                                id="csvInput"
+                                value={csvInputText}
+                                onChange={(e) => setCsvInputText(e.target.value)}
+                                rows="6"
+                                className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800"
+                                placeholder="請貼上 CSV 內容，例如: &#10;標題一,內容一,[],[],10,1&#10;標題二,內容二,[],[],5,2"
+                            ></textarea>
+                            <button
+                                onClick={handleImportCsv}
+                                className="mt-2 flex items-center rounded-lg bg-purple-600 px-6 py-3 font-semibold text-white shadow-md transition duration-300 ease-in-out hover:bg-purple-700 focus:outline-none focus:ring-4 focus:ring-purple-300"
+                            >
+                                <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                </svg>
+                                匯入段落內容
+                            </button>
+                            {importMessage && <p className={`mt-2 text-sm ${importMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{importMessage.text}</p>}
+                        </div>
+
+
+                        {/* Paragraph List */}
                         {paragraphs.length === 0 ? (
                             <p className="py-12 text-center text-gray-500">目前沒有段落，請點擊「新增段落」按鈕來新增。</p>
                         ) : (
                             <ul className="space-y-4">
+                                {/* Sort paragraphs by order before rendering */}
                                 {[...paragraphs].sort((a, b) => a.order - b.order).map((paragraph, index) => (
                                     <ParagraphItem
-                                        key={paragraph.id}
+                                        key={paragraph.id} // Use unique ID for key
                                         paragraph={paragraph}
                                         onUpdate={handleUpdateParagraph}
                                         onDelete={handleDeleteParagraph}
@@ -393,6 +549,7 @@
                             </ul>
                         )}
 
+                        {/* Add Paragraph Button at the bottom center */}
                         <div className="mt-8 flex justify-center">
                             <button
                                 onClick={handleAddParagraph}
