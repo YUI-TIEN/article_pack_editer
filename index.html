@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>新增主題包</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React and ReactDOM CDN (Development versions) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel for JSX transformation in browser (for simple local testing) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        // Function to determine background color based on question count
+        const getBackgroundColorClass = (questionCount) => {
+            if (questionCount === 0) {
+                return 'bg-white'; // Default white for 0 questions
+            } else if (questionCount >= 1 && questionCount <= 5) {
+                return 'bg-blue-50';
+            } else if (questionCount >= 6 && questionCount <= 10) {
+                return 'bg-blue-100';
+            } else if (questionCount >= 11 && questionCount <= 20) {
+                return 'bg-blue-200';
+            } else if (questionCount >= 21 && questionCount <= 30) {
+                return 'bg-blue-300';
+            } else if (questionCount >= 31 && questionCount <= 40) {
+                return 'bg-blue-400';
+            } else if (questionCount >= 41) {
+                return 'bg-blue-500 text-white'; // Darkest blue, text becomes white for readability
+            }
+            return 'bg-white'; // Fallback
+        };
+
+        // ParagraphItem Component: Renders a single paragraph and manages its editing state
+        function ParagraphItem({ paragraph, onUpdate, onDelete, onDragStart, onDragEnter, onDragOver, onDrop, isDraggingOver }) {
+            const [isEditing, setIsEditing] = React.useState(paragraph.isEditing || false);
+            const [currentTitle, setCurrentTitle] = React.useState(paragraph.title);
+            const [currentContent, setCurrentContent] = React.useState(paragraph.content);
+            const [currentQuestionCount, setCurrentQuestionCount] = React.useState(parseInt(paragraph.questionCount || 0));
+            const [errorMessage, setErrorMessage] = React.useState('');
+
+            React.useEffect(() => {
+                setCurrentTitle(paragraph.title);
+                setCurrentContent(paragraph.content);
+                setCurrentQuestionCount(parseInt(paragraph.questionCount || 0));
+                setIsEditing(paragraph.isEditing || false);
+            }, [paragraph]);
+
+            const handleSave = () => {
+                if (currentQuestionCount < 0) {
+                    setErrorMessage('回答問題數不能為負數。');
+                    return;
+                }
+                onUpdate({
+                    ...paragraph,
+                    title: currentTitle,
+                    content: currentContent,
+                    questionCount: parseInt(currentQuestionCount),
+                    isEditing: false,
+                });
+                setErrorMessage('');
+                setIsEditing(false);
+            };
+
+            const handleCancel = () => {
+                if (paragraph.title === '' && paragraph.content === '' && paragraph.questionCount === 0) {
+                    onDelete(paragraph.id);
+                } else {
+                    setCurrentTitle(paragraph.title);
+                    setCurrentContent(paragraph.content);
+                    setCurrentQuestionCount(parseInt(paragraph.questionCount || 0));
+                    setIsEditing(false);
+                    setErrorMessage('');
+                }
+            };
+
+            const incrementQuestionCount = () => {
+                setCurrentQuestionCount(prev => prev + 1);
+            };
+
+            const decrementQuestionCount = () => {
+                setCurrentQuestionCount(prev => Math.max(0, prev - 1));
+            };
+
+            const handleQuestionCountChange = (e) => {
+                const value = parseInt(e.target.value);
+                setCurrentQuestionCount(isNaN(value) ? 0 : Math.max(0, value));
+            };
+
+            const backgroundColorClass = getBackgroundColorClass(paragraph.questionCount);
+            const textColorClass = paragraph.questionCount >= 41 ? 'text-white' : 'text-gray-800';
+
+            return (
+                <li
+                    key={paragraph.id}
+                    draggable="true"
+                    onDragStart={onDragStart}
+                    onDragEnter={onDragEnter}
+                    onDragOver={onDragOver}
+                    onDrop={onDrop}
+                    className={`flex flex-col gap-2 rounded-lg p-4 shadow-sm transition duration-200 ease-in-out ${backgroundColorClass} ${textColorClass} ${
+                        isDraggingOver ? 'border-2 border-dashed border-blue-400' : ''
+                    }`}
+                >
+                    {isEditing ? (
+                        <div className="flex w-full flex-col space-y-3">
+                            <div className="flex flex-col">
+                                <label htmlFor={`order-${paragraph.id}`} className="mb-1 text-sm font-medium text-gray-700">順序:</label>
+                                <span id={`order-${paragraph.id}`} className="text-lg font-semibold text-gray-700">{paragraph.order}</span>
+                            </div>
+                            <div className="flex flex-col">
+                                <label htmlFor={`title-input-${paragraph.id}`} className="mb-1 text-sm font-medium text-gray-700">標題:</label>
+                                <input
+                                    type="text"
+                                    id={`title-input-${paragraph.id}`}
+                                    value={currentTitle}
+                                    onChange={(e) => setCurrentTitle(e.target.value)}
+                                    className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800"
+                                    placeholder="輸入段落標題"
+                                />
+                            </div>
+                            <div className="flex flex-col">
+                                <label htmlFor={`content-textarea-${paragraph.id}`} className="mb-1 text-sm font-medium text-gray-700">內容:</label>
+                                <textarea
+                                    id={`content-textarea-${paragraph.id}`}
+                                    value={currentContent}
+                                    onChange={(e) => setCurrentContent(e.target.value)}
+                                    rows="3"
+                                    className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800"
+                                    placeholder="輸入段落內容"
+                                ></textarea>
+                            </div>
+                            <div className="flex flex-col">
+                                <label htmlFor={`question-count-input-${paragraph.id}`} className="mb-1 text-sm font-medium text-gray-700">回答問題數:</label>
+                                <div className="flex items-center space-x-2">
+                                    <button
+                                        type="button"
+                                        onClick={decrementQuestionCount}
+                                        className="rounded-full bg-gray-200 p-2 text-gray-700 transition duration-300 hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                                        title="減少問題數"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 12H4"></path></svg>
+                                    </button>
+                                    <input
+                                        type="number"
+                                        id={`question-count-input-${paragraph.id}`}
+                                        value={currentQuestionCount}
+                                        onChange={handleQuestionCountChange}
+                                        className="w-20 text-center rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800"
+                                        min="0"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={incrementQuestionCount}
+                                        className="rounded-full bg-gray-200 p-2 text-gray-700 transition duration-300 hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                                        title="增加問題數"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            {errorMessage && <p className="mt-2 text-sm text-red-600">{errorMessage}</p>}
+                            <div className="flex justify-end space-x-2 pt-2">
+                                <button
+                                    onClick={handleSave}
+                                    className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white shadow-md transition duration-300 ease-in-out hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300"
+                                >
+                                    儲存
+                                </button>
+                                <button
+                                    onClick={handleCancel}
+                                    className="rounded-lg border border-gray-300 px-4 py-2 font-semibold text-gray-700 shadow-sm transition duration-300 ease-in-out hover:bg-gray-100 focus:outline-none focus:ring-4 focus:ring-gray-200"
+                                >
+                                    取消
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex w-full items-center justify-between">
+                            {/* Adjusted display mode for consistent font size and weight */}
+                            <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-4 gap-2 items-center">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-base">順序:</span>
+                                    <span className="text-base">{paragraph.order}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <span className="text-base">標題:</span>
+                                    <span className="truncate text-base">{paragraph.title || '(無標題)'}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <span className="text-base">內容:</span>
+                                    <span className="truncate text-base">{paragraph.content || '(無內容)'}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <span className="text-base">問題數:</span>
+                                    <span className="text-base">{paragraph.questionCount}</span>
+                                </div>
+                            </div>
+                            <div className="flex space-x-2 pl-4">
+                                <button
+                                    onClick={() => setIsEditing(true)}
+                                    className="rounded-full bg-yellow-500 p-2 text-white transition duration-300 ease-in-out hover:bg-yellow-600 focus:outline-none focus:ring-4 focus:ring-yellow-300"
+                                    title="編輯"
+                                >
+                                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={() => onDelete(paragraph.id)}
+                                    className="rounded-full bg-red-500 p-2 text-white transition duration-300 ease-in-out hover:bg-red-600 focus:outline-none focus:ring-4 focus:ring-red-300"
+                                    title="刪除"
+                                >
+                                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </li>
+            );
+        }
+
+        // Main App Component
+        function App() {
+            const [paragraphs, setParagraphs] = React.useState([]);
+            const [fileName, setFileName] = React.useState('theme_pack');
+            const nextIdRef = React.useRef(0);
+            const dragItem = React.useRef(null);
+            const dragOverItem = React.useRef(null);
+
+            React.useEffect(() => {
+                if (paragraphs.length > 0) {
+                    nextIdRef.current = Math.max(...paragraphs.map(p => p.id)) + 1;
+                } else {
+                    nextIdRef.current = 0;
+                }
+            }, [paragraphs]);
+
+            const handleAddParagraph = () => {
+                const newParagraph = {
+                    id: nextIdRef.current++,
+                    title: '',
+                    content: '',
+                    questionCount: 0,
+                    order: paragraphs.length + 1,
+                    isEditing: true,
+                };
+                setParagraphs([...paragraphs, newParagraph]);
+            };
+
+            const handleUpdateParagraph = (updatedParagraph) => {
+                setParagraphs(paragraphs.map(p =>
+                    p.id === updatedParagraph.id ? updatedParagraph : p
+                ));
+            };
+
+            const handleDeleteParagraph = (id) => {
+                const updatedParagraphs = paragraphs.filter(p => p.id !== id);
+                setParagraphs(updatedParagraphs.map((p, index) => ({ ...p, order: index + 1 })));
+            };
+
+            const handleDragStart = (e, index) => {
+                dragItem.current = index;
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", index);
+            };
+
+            const handleDragEnter = (e, index) => {
+                e.preventDefault();
+                dragOverItem.current = index;
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+            };
+
+            const handleDrop = React.useCallback(() => {
+                const dragIndex = dragItem.current;
+                const dropIndex = dragOverItem.current;
+
+                if (dragIndex === null || dropIndex === null || dragIndex === dropIndex) {
+                    dragItem.current = null;
+                    dragOverItem.current = null;
+                    return;
+                }
+
+                const newParagraphs = [...paragraphs];
+                const [reorderedItem] = newParagraphs.splice(dragIndex, 1);
+                newParagraphs.splice(dropIndex, 0, reorderedItem);
+
+                setParagraphs(newParagraphs.map((p, index) => ({ ...p, order: index + 1 })));
+
+                dragItem.current = null;
+                dragOverItem.current = null;
+            }, [paragraphs]);
+
+            const handleExportCSV = () => {
+                const sortedParagraphs = [...paragraphs].sort((a, b) => a.order - b.order);
+                const headers = ["subtitle", "content", "animations", "expressions", "questionNumbers", "order"];
+                const csvRows = [];
+                csvRows.push(headers.join(","));
+
+                sortedParagraphs.forEach(p => {
+                    const escapedTitle = `"${p.title.replace(/"/g, '""')}"`;
+                    const escapedContent = `"${p.content.replace(/"/g, '""')}"`;
+                    const row = [
+                        escapedTitle,
+                        escapedContent,
+                        `"[]"`,
+                        `"[]"`,
+                        p.questionCount,
+                        p.order,
+                    ];
+                    csvRows.push(row.join(","));
+                });
+
+                const csvString = csvRows.join("\n");
+                const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+                const link = document.createElement("a");
+                if (link.download !== undefined) {
+                    const exportFileName = fileName.trim() === '' ? 'theme_pack' : fileName.trim();
+                    link.setAttribute("href", URL.createObjectURL(blob));
+                    link.setAttribute("download", `${exportFileName}.csv`);
+                    link.style.visibility = "hidden";
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-100 p-4 font-inter text-gray-800 antialiased">
+                    <div className="container mx-auto rounded-lg bg-white p-6 shadow-xl relative">
+                        <h1 className="mb-6 text-center text-4xl font-bold text-gray-900">新增主題包</h1>
+
+                        <div className="absolute top-6 right-6">
+                            <button
+                                onClick={handleExportCSV}
+                                className="flex items-center rounded-lg bg-green-600 px-6 py-3 font-semibold text-white shadow-md transition duration-300 ease-in-out hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300"
+                            >
+                                <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                </svg>
+                                匯出CSV
+                            </button>
+                        </div>
+
+                        <div className="mb-6">
+                            <label htmlFor="fileName" className="mb-1 block text-sm font-medium text-gray-700">檔案名稱:</label>
+                            <input
+                                type="text"
+                                id="fileName"
+                                value={fileName}
+                                onChange={(e) => setFileName(e.target.value)}
+                                className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                placeholder="輸入檔案名稱 (例如: theme_pack)"
+                            />
+                        </div>
+
+                        {paragraphs.length === 0 ? (
+                            <p className="py-12 text-center text-gray-500">目前沒有段落，請點擊「新增段落」按鈕來新增。</p>
+                        ) : (
+                            <ul className="space-y-4">
+                                {[...paragraphs].sort((a, b) => a.order - b.order).map((paragraph, index) => (
+                                    <ParagraphItem
+                                        key={paragraph.id}
+                                        paragraph={paragraph}
+                                        onUpdate={handleUpdateParagraph}
+                                        onDelete={handleDeleteParagraph}
+                                        onDragStart={(e) => handleDragStart(e, index)}
+                                        onDragEnter={(e) => handleDragEnter(e, index)}
+                                        onDragOver={handleDragOver}
+                                        onDrop={handleDrop}
+                                        isDraggingOver={dragOverItem.current === index}
+                                    />
+                                ))}
+                            </ul>
+                        )}
+
+                        <div className="mt-8 flex justify-center">
+                            <button
+                                onClick={handleAddParagraph}
+                                className="flex items-center rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-md transition duration-300 ease-in-out hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300"
+                            >
+                                <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                新增段落
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Render the App component into the 'root' div
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
