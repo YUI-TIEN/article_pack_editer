@@ -12,6 +12,59 @@
         body {
             font-family: 'Inter', sans-serif;
         }
+        /* Custom switch styling for the checkbox */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 48px; /* Slightly wider for better look */
+            height: 28px; /* Slightly taller */
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 28px; /* Make it pill-shaped */
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px; /* Slightly smaller for thumb */
+            width: 20px; /* Slightly smaller for thumb */
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: #2196F3; /* Blue when checked */
+        }
+
+        input:focus + .slider {
+            box-shadow: 0 0 1px #2196F3;
+        }
+
+        input:checked + .slider:before {
+            -webkit-transform: translateX(20px); /* Move thumb to the right */
+            -ms-transform: translateX(20px);
+            transform: translateX(20px);
+        }
     </style>
 </head>
 <body>
@@ -44,45 +97,81 @@
             return 'bg-white text-gray-800'; // Fallback
         };
 
-        // Helper function to parse a single CSV row
-        const parseCsvRowSimple = (rowString) => {
+        // Helper function to parse a single CSV row with strict validation
+        const parseCsvRowStrict = (rowString) => {
+            // Robust CSV parsing regex to handle commas within double quotes and escaped quotes
+            const regex = /(?:^|,)(?:"([^"]*(?:""[^"]*)*)"|([^,]*))/g;
+            let match;
             const parts = [];
-            let currentPart = '';
-            let inQuote = false;
-            let i = 0;
+            let lastIndex = 0;
 
-            while (i < rowString.length) {
-                const char = rowString[i];
-                const nextChar = rowString[i + 1];
-
-                if (char === '"') {
-                    if (inQuote && nextChar === '"') { // Escaped double quote ""
-                        currentPart += '"';
-                        i++; // Consume the second quote
-                    } else { // Start or end of a quote
-                        inQuote = !inQuote;
+            while ((match = regex.exec(rowString)) !== null) {
+                // If the match is not directly after the last matched part (means there's a comma)
+                if (match.index > lastIndex && rowString[match.index -1] !== ',') {
+                    // This scenario should not happen with the given regex if it's well-formed CSV
+                    // But as a safeguard, push empty string for missing column if any (though regex handles it mostly)
+                    if (parts.length > 0 && rowString[lastIndex] !== ',') { // Check if there's an actual separator
+                       // This means a missing value between two commas, e.g., "a,,b"
                     }
-                } else if (char === ',' && !inQuote) { // Comma outside quotes is a delimiter
-                    parts.push(currentPart.trim()); // Trim parts
-                    currentPart = '';
-                } else {
-                    currentPart += char;
                 }
-                i++;
-            }
-            parts.push(currentPart.trim()); // Push the last part
 
-            // Validate that we have enough parts for subtitle, content, and questionNumbers
-            if (parts.length < 5) { // Needs at least 5 parts to get questionNumbers (index 4)
-                console.warn("CSV row has fewer than expected parts:", rowString);
-                return null;
+                let value = match[1] !== undefined ? match[1] : match[2]; // Use group 1 for quoted, group 2 for unquoted
+                if (value !== undefined) {
+                    value = value.replace(/""/g, '"'); // Unescape double quotes
+                    parts.push(value.trim());
+                } else {
+                    parts.push(''); // Handle empty values between commas
+                }
+                lastIndex = regex.lastIndex;
+            }
+
+            // After parsing, sometimes an empty string is added if the string ends with a comma
+            // Or if the initial string was just empty parts, e.g., ",,"
+            // We need to ensure we only count non-empty matches from the regex itself
+            const actualParts = parts.filter((p, index) => {
+                // Keep all parts, just making sure the logic for parsing handles missing parts correctly
+                // The regex handles empty fields between commas correctly, so this filter might be unnecessary or needs refinement
+                return true;
+            });
+            
+            // Adjust for potential trailing comma parsing creating an extra empty part
+            if (rowString.endsWith(',') && actualParts.length === match.length - 1) {
+                actualParts.push('');
+            }
+
+
+            // Stricter check for exactly 6 columns
+            if (actualParts.length !== 6) {
+                // console.warn(`CSV row has incorrect number of columns (${actualParts.length} instead of 6):`, rowString);
+                return { isValid: false, errorMessage: `欄位數量錯誤 (應為 6 個，但找到 ${actualParts.length} 個)` };
+            }
+
+            const [subtitle, content, animations, expressions, questionNumbersStr, orderStr] = actualParts;
+
+            // Validate animations and expressions must be "[]"
+            if (animations !== '[]' || expressions !== '[]') {
+                return { isValid: false, errorMessage: 'animations 或 expressions 欄位格式錯誤 (應為 [])' };
+            }
+
+            // Validate questionNumbers is a non-negative integer
+            const questionNumbers = parseInt(questionNumbersStr);
+            if (isNaN(questionNumbers) || questionNumbers < 0) {
+                return { isValid: false, errorMessage: 'questionNumbers 欄位必須為非負整數' };
+            }
+
+            // Validate order is an integer (though its value is not directly used for app state order)
+            const order = parseInt(orderStr);
+            if (isNaN(order)) {
+                return { isValid: false, errorMessage: 'order 欄位必須為整數' };
             }
 
             return {
-                title: parts[0],
-                content: parts[1],
-                // parts[2] and parts[3] are "[]" for animations and expressions, not used in state
-                questionCount: parseInt(parts[4] || 0), // Safely parse, default to 0 if invalid
+                isValid: true,
+                data: {
+                    title: subtitle,
+                    content: content,
+                    questionCount: questionNumbers,
+                }
             };
         };
 
@@ -91,19 +180,38 @@
             const rows = csvString.trim().split('\n');
             let parsedParagraphs = [];
             let localNextId = currentNextId;
+            let importError = null; // To store error message if any
 
-            rows.forEach(rowString => {
-                if (!rowString.trim()) return; // Skip empty lines
-
-                const parsedData = parseCsvRowSimple(rowString);
-                if (parsedData) {
-                    parsedParagraphs.push({
-                        id: localNextId++, // Assign a new unique ID
-                        ...parsedData,
-                    });
+            // Determine if the first row is a header and skip it
+            let dataRows = [...rows];
+            if (rows.length > 0) {
+                const firstRowParts = parseCsvRowStrict(rows[0]);
+                if (firstRowParts.isValid === false && firstRowParts.errorMessage &&
+                    rows[0].toLowerCase().startsWith('subtitle,content,animations,expressions,questionnumbers,order')) {
+                    // It's likely a header, so skip it and reset error for this row
+                    dataRows = rows.slice(1);
+                    importError = null; // Clear potential header error
                 }
-            });
-            return { parsedParagraphs, newNextId: localNextId };
+            }
+
+
+            for (let i = 0; i < dataRows.length; i++) {
+                const rowString = dataRows[i];
+                if (!rowString.trim()) continue; // Skip empty lines
+
+                const result = parseCsvRowStrict(rowString); // Use the strict parser
+                if (result.isValid) {
+                    parsedParagraphs.push({
+                        id: localNextId++,
+                        ...result.data,
+                    });
+                } else {
+                    importError = `CSV 格式錯誤，第 ${i + 1} 行內容不符合預期。錯誤細節：${result.errorMessage} ('${rowString}')`;
+                    parsedParagraphs = []; // Clear any partially parsed data
+                    break; // Stop parsing on first error
+                }
+            }
+            return { parsedParagraphs, newNextId: localNextId, importError };
         };
 
 
@@ -323,10 +431,12 @@
             const [fileName, setFileName] = React.useState('theme_pack'); // State for file name
             const [csvInputText, setCsvInputText] = React.useState(''); // State for CSV input text
             const [importMessage, setImportMessage] = React.useState(null); // State for import feedback message
+            const [showImportSection, setShowImportSection] = React.useState(false); // New state for toggling import section
 
             const nextIdRef = React.useRef(0); // To generate unique IDs for paragraphs
             const dragItem = React.useRef(null); // Reference to the dragged item
             const dragOverItem = React.useRef(null); // Reference to the item being dragged over
+            const textareaRef = React.useRef(null); // Ref for the CSV import textarea
 
             // Effect to initialize nextIdRef from existing paragraphs on load, or start from 0
             React.useEffect(() => {
@@ -336,6 +446,57 @@
                     nextIdRef.current = 0;
                 }
             }, [paragraphs]);
+
+            // Setup drag-and-drop listeners for the textarea
+            React.useEffect(() => {
+                const textarea = textareaRef.current;
+                if (!textarea || !showImportSection) return; // Only attach if section is visible
+
+                const handleDragOver = (e) => {
+                    e.preventDefault(); // Essential to allow drop
+                    e.stopPropagation();
+                    textarea.classList.add('border-blue-500', 'ring-2', 'ring-blue-500'); // Visual feedback
+                };
+
+                const handleDragLeave = (e) => {
+                    e.stopPropagation();
+                    textarea.classList.remove('border-blue-500', 'ring-2', 'ring-blue-500'); // Remove visual feedback
+                };
+
+                const handleDrop = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    textarea.classList.remove('border-blue-500', 'ring-2', 'ring-blue-500'); // Remove visual feedback
+
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        const file = files[0];
+                        if (file.type === 'text/csv' || file.name.toLowerCase().endsWith('.csv')) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                                setCsvInputText(event.target.result);
+                                setImportMessage({ type: 'info', text: '檔案已載入。請點擊「匯入段落內容」按鈕進行匯入。' });
+                            };
+                            reader.onerror = () => {
+                                setImportMessage({ type: 'error', text: '讀取檔案時發生錯誤。' });
+                            };
+                            reader.readAsText(file);
+                        } else {
+                            setImportMessage({ type: 'error', text: '請拖曳有效的 .csv 檔案。' });
+                        }
+                    }
+                };
+
+                textarea.addEventListener('dragover', handleDragOver);
+                textarea.addEventListener('dragleave', handleDragLeave);
+                textarea.addEventListener('drop', handleDrop);
+
+                return () => {
+                    textarea.removeEventListener('dragover', handleDragOver);
+                    textarea.removeEventListener('dragleave', handleDragLeave);
+                    textarea.removeEventListener('drop', handleDrop);
+                };
+            }, [showImportSection]); // Re-attach listeners if section visibility changes
 
             // Handler to add a new, empty paragraph directly to the list in editing mode
             const handleAddParagraph = () => {
@@ -365,7 +526,7 @@
                 setParagraphs(updatedParagraphs.map((p, index) => ({ ...p, order: index + 1 })));
             };
 
-            // Drag and Drop Handlers
+            // Drag and Drop Handlers for reordering paragraphs in the list
             const handleDragStart = (e, index) => {
                 dragItem.current = index;
                 e.dataTransfer.effectAllowed = "move";
@@ -453,7 +614,12 @@
                     return;
                 }
 
-                const { parsedParagraphs: importedItems, newNextId } = parseCsvString(csvInputText, nextIdRef.current);
+                const { parsedParagraphs: importedItems, newNextId, importError } = parseCsvString(csvInputText, nextIdRef.current);
+
+                if (importError) {
+                    setImportMessage({ type: 'error', text: importError });
+                    return;
+                }
 
                 if (importedItems.length === 0) {
                     setImportMessage({ type: 'error', text: '無法解析 CSV 內容，請檢查格式是否正確。' });
@@ -503,29 +669,45 @@
                             />
                         </div>
 
-                        {/* CSV Input Section */}
-                        <div className="mb-6">
-                            <label htmlFor="csvInput" className="mb-1 block text-sm font-medium text-gray-700">匯入段落內容 (CSV 格式):</label>
-                            <textarea
-                                id="csvInput"
-                                value={csvInputText}
-                                onChange={(e) => setCsvInputText(e.target.value)}
-                                rows="6"
-                                className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800"
-                                placeholder="請貼上 CSV 內容，例如: &#10;標題一,內容一,[],[],10,1&#10;標題二,內容二,[],[],5,2"
-                            ></textarea>
-                            <button
-                                onClick={handleImportCsv}
-                                className="mt-2 flex items-center rounded-lg bg-purple-600 px-6 py-3 font-semibold text-white shadow-md transition duration-300 ease-in-out hover:bg-purple-700 focus:outline-none focus:ring-4 focus:ring-purple-300"
-                            >
-                                <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                                </svg>
-                                匯入段落內容
-                            </button>
-                            {importMessage && <p className={`mt-2 text-sm ${importMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{importMessage.text}</p>}
+                        {/* Toggle for CSV Input Section */}
+                        <div className="mb-4 flex items-center justify-between">
+                            <label htmlFor="toggleImportSection" className="text-sm font-medium text-gray-700 cursor-pointer">匯入段落內容:</label>
+                            <label className="switch">
+                                <input
+                                    type="checkbox"
+                                    id="toggleImportSection"
+                                    checked={showImportSection}
+                                    onChange={(e) => setShowImportSection(e.target.checked)}
+                                />
+                                <span className="slider round"></span>
+                            </label>
                         </div>
 
+                        {/* CSV Input Section - Conditionally rendered */}
+                        {showImportSection && (
+                            <div className="mb-6 border-t pt-4 border-gray-200"> {/* Added border-t and pt-4 for separation */}
+                                <label htmlFor="csvInput" className="mb-1 block text-sm font-medium text-gray-700">請將 CSV 文本貼上或拖曳至此處:</label>
+                                <textarea
+                                    ref={textareaRef} /* Attach ref for drag-and-drop */
+                                    id="csvInput"
+                                    value={csvInputText}
+                                    onChange={(e) => setCsvInputText(e.target.value)}
+                                    rows="6"
+                                    className="w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-800"
+                                    placeholder="請貼上或拖曳 CSV 內容，例如: &#10;標題一,內容一,[],[],10,1&#10;標題二,內容二,[],[],5,2"
+                                ></textarea>
+                                <button
+                                    onClick={handleImportCsv}
+                                    className="mt-2 flex items-center rounded-lg bg-purple-600 px-6 py-3 font-semibold text-white shadow-md transition duration-300 ease-in-out hover:bg-purple-700 focus:outline-none focus:ring-4 focus:ring-purple-300"
+                                >
+                                    <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                    </svg>
+                                    匯入段落內容
+                                </button>
+                                {importMessage && <p className={`mt-2 text-sm ${importMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{importMessage.text}</p>}
+                            </div>
+                        )}
 
                         {/* Paragraph List */}
                         {paragraphs.length === 0 ? (
